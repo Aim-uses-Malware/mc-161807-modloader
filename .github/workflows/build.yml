@@ -1,11 +1,7 @@
 name: Build
 
 on:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
-  # Включаем ручной запуск с параметрами
+  # Мы убрали 'push' и 'pull_request' отсюда, так что автосборка отключена!
   workflow_dispatch:
     inputs:
       build_target:
