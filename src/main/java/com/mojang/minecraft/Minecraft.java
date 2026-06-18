@@ -2,6 +2,7 @@ package com.mojang.minecraft;
 
 import com.mojang.minecraft.character.Zombie;
 import com.mojang.minecraft.level.*;
+import com.mojang.minecraft.modloader.ModLoader;
 import com.mojang.minecraft.level.tile.Tile;
 import com.mojang.minecraft.particle.ParticleEngine;
 import org.lwjgl.BufferUtils;
@@ -157,6 +158,9 @@ public class Minecraft implements Runnable {
         this.levelRenderer = new LevelRenderer(this.level);
         this.player = new Player(this.level);
         this.particleEngine = new ParticleEngine(this.level);
+
+        // Initialize ForgeModLoader — loads all mods from ./mods/
+        ModLoader.init();
 
         // Grab mouse cursor
         Mouse.setGrabbed(true);
@@ -316,6 +320,9 @@ public class Minecraft implements Runnable {
 
         // Tick player
         this.player.onTick();
+
+        // Dispatch tick to mods
+        ModLoader.getInstance().dispatchTick(this.level);
     }
 
     /**
@@ -481,6 +488,7 @@ public class Minecraft implements Runnable {
                 // Create particles for this tile
                 if (previousTile != null && tileChanged) {
                     previousTile.onDestroy(this.level, this.hitResult.x, this.hitResult.y, this.hitResult.z, this.particleEngine);
+                    ModLoader.getInstance().dispatchTileDestroy(previousTile, this.level, this.hitResult.x, this.hitResult.y, this.hitResult.z);
                 }
             }
 
@@ -501,6 +509,12 @@ public class Minecraft implements Runnable {
 
                 // Set the tile
                 this.level.setTile(x, y, z, this.selectedTileId);
+
+                // Notify mods
+                Tile placedTile = Tile.tiles[this.selectedTileId];
+                if (placedTile != null) {
+                    ModLoader.getInstance().dispatchTilePlace(placedTile, this.level, x, y, z);
+                }
             }
         }
 
