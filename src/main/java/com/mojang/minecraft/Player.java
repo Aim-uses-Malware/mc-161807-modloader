@@ -1,6 +1,7 @@
 package com.mojang.minecraft;
 
 import com.mojang.minecraft.level.Level;
+import com.mojang.minecraft.modloader.ModLoader;
 import org.lwjgl.input.Keyboard;
 
 public class Player extends Entity {
@@ -38,11 +39,14 @@ public class Player extends Entity {
         if (Keyboard.isKeyDown(203) || Keyboard.isKeyDown(30)) { // Left, A
             vertical--;
         }
-        if (Keyboard.isKeyDown(205) || Keyboard.isKeyDown(32)) {  // Right, D
+        if (Keyboard.isKeyDown(205) || Keyboard.isKeyDown(32)) { // Right, D
             vertical++;
         }
+
+        // Jump — dispatch event to mods
         if ((Keyboard.isKeyDown(57) || Keyboard.isKeyDown(219)) && this.onGround) { // Space, Windows Key
             this.motionY = 0.5F;
+            ModLoader.getInstance().dispatchPlayerJump(this);
         }
 
         // Add motion to the player using keyboard input
@@ -65,5 +69,4 @@ public class Player extends Entity {
             this.motionZ *= 0.7F;
         }
     }
-
 }
