@@ -30,21 +30,18 @@ public class SprintMod implements IMod {
         System.out.println("[SprintMod] Мод на спринт успешно инициализирован! Зажми LCONTROL для разгона.");
     }
 
-@Override
+    @Override
     public void onPlayerTick(Player player, Level level) {
         // Проверяем, зажат ли левый Ctrl
         if (Keyboard.isKeyDown(Keyboard.KEY_LCONTROL)) {
-            // Если игрок движется (система приложила motion от нажатия W/A/S/D), 
-            // мы даем ему небольшой пинок вперед по вектору его движения, 
-            // но ограничиваем максимальный разгон, чтобы не улететь в космос.
-            
-            // Проверяем, что скорость не превышает разумный предел для спринта
+            // Считаем текущую скорость по осям X и Z
             double currentSpeed = Math.sqrt(player.motionX * player.motionX + player.motionZ * player.motionZ);
             
+            // Если игрок реально движется и скорость не улетела в космос, даем плавный буст
             if (currentSpeed > 0.01 && currentSpeed < 0.3) {
-                // Аккуратно подталкиваем в сторону текущего движения
                 player.motionX *= 1.08F;
                 player.motionZ *= 1.08F;
             }
         }
     }
+}
