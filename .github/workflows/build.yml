@@ -5,6 +5,18 @@ on:
     branches: [ master ]
   pull_request:
     branches: [ master ]
+  # Включаем ручной запуск с параметрами
+  workflow_dispatch:
+    inputs:
+      build_target:
+        description: 'Что компилировать?'
+        required: true
+        default: 'All'
+        type: choice
+        options:
+          - 'All'
+          - 'Only Game + ModLoader'
+          - 'Only SprintMod'
 
 jobs:
   build:
@@ -24,50 +36,61 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # 1. Собираем ядро игры и модлоадер
+      # 1. Собираем ядро (если выбрали All или Only Game)
       - name: Build Core and ModLoader
+        if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_target == 'All' || github.event.inputs.build_target == 'Only Game + ModLoader' }}"
         run: ./gradlew jar fatJar extractNatives
 
-      # 2. Компилируем SprintMod, используя скомпилированное ядро и LWJGL в classpath
+      # 2. Компилируем SprintMod (если выбрали All или Only SprintMod)
+      # Если собираем ТОЛЬКО мод, гитхаб подтянет прошлый успешный релиз/билд ядра (или скомпилит по-быстрому, если файлы на месте)
       - name: Compile SprintMod
+        if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_target == 'All' || github.event.inputs.build_target == 'Only SprintMod' }}"
         run: |
           mkdir -p mods-build/classes
           mkdir -p build/libs/mods
           
-          # Находим, где лежат зависимости (распакованный fatJar или папка сборки gradle)
-          # Для простоты компилируем прямо против скомпилированного minecraft-rd-161807.jar
+          # Если ядра нет (выбран пункт 'Only SprintMod' на чистом раннере), сначала собираем его, чтобы получить classpath
+          if [ ! -f build/libs/minecraft-rd-161807.jar ]; then
+            echo "Ядро не найдено, собираем зависимости для компиляции мода..."
+            ./gradlew jar fatJar
+          fi
+
           javac -d mods-build/classes \
             -cp "build/libs/minecraft-rd-161807.jar:build/libs/minecraft-rd-161807-all.jar" \
             mods-src/sprintmod/src/mymod/SprintMod.java
 
-      # 3. Упаковываем скомпилированный класс мода в SprintMod.jar
+      # 3. Упаковываем SprintMod JAR
       - name: Package SprintMod JAR
+        if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_target == 'All' || github.event.inputs.build_target == 'Only SprintMod' }}"
         run: |
           jar cf build/libs/mods/SprintMod.jar -C mods-build/classes .
           echo "SprintMod.jar успешно собран!"
 
-      # ─── Выгрузка Артефактов ─────────────────────────────────────────────
+      # ─── Выгрузка Артефактов (срабатывают по условию) ─────────────────────
 
-      - name: Upload modloader jar (no deps)
+      - name: Upload modloader jar
+        if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_target == 'All' || github.event.inputs.build_target == 'Only Game + ModLoader' }}"
         uses: actions/upload-artifact@v4
         with:
           name: mc-161807-modloader
           path: build/libs/minecraft-rd-161807.jar
 
-      - name: Upload fat jar (runnable, all deps included)
+      - name: Upload fat jar
+        if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_target == 'All' || github.event.inputs.build_target == 'Only Game + ModLoader' }}"
         uses: actions/upload-artifact@v4
         with:
           name: mc-161807-modloader-all
           path: build/libs/minecraft-rd-161807-all.jar
 
-      # Новый артефакт: качай готовый спринт-мод отсюда!
       - name: Upload Compiled Mods
+        if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_target == 'All' || github.event.inputs.build_target == 'Only SprintMod' }}"
         uses: actions/upload-artifact@v4
         with:
           name: compiled-minecraft-mods
           path: build/libs/mods/*.jar
 
       - name: Upload natives (macOS)
+        if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_target == 'All' || github.event.inputs.build_target == 'Only Game + ModLoader' }}"
         uses: actions/upload-artifact@v4
         with:
           name: natives-macos
