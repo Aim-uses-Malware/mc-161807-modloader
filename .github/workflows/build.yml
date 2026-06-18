@@ -25,7 +25,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build
-        run: ./gradlew jar fatJar
+        run: ./gradlew jar fatJar extractNatives
 
       - name: Upload modloader jar (no deps)
         uses: actions/upload-artifact@v4
@@ -38,3 +38,9 @@ jobs:
         with:
           name: mc-161807-modloader-all
           path: build/libs/minecraft-rd-161807-all.jar
+
+      - name: Upload natives (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: natives-macos
+          path: run/natives/*.dylib
