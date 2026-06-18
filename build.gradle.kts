@@ -20,7 +20,6 @@ dependencies {
     natives(group = "org.lwjgl.lwjgl", name = "lwjgl-platform", version = "2.9.3", classifier = "natives-osx")
 }
 
-
 // Add manifest to the default jar
 tasks.jar {
     manifest {
@@ -48,16 +47,22 @@ task("fatJar", Jar::class) {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
+val runDir = File(projectDir, "run")
+val nativesDir = File(runDir, "natives")
+
 task("run", JavaExec::class) {
-    jvmArgs = listOf("-Dorg.lwjgl.librarypath=${project.projectDir.toPath()}\\run\\natives")
+    jvmArgs = listOf("-Dorg.lwjgl.librarypath=${nativesDir.absolutePath}")
     main = "com.mojang.minecraft.Minecraft"
     classpath = sourceSets["main"].runtimeClasspath
-    workingDir("${project.projectDir.toPath()}\\run")
+    workingDir(runDir)
     dependsOn("extractNatives")
+    doFirst {
+        runDir.mkdirs()
+    }
 }
 
 task("extractNatives", Copy::class) {
     dependsOn(natives)
     from(natives.map { zipTree(it) })
-    into("${project.projectDir.toPath()}\\run\\natives")
+    into(nativesDir)
 }
