@@ -293,8 +293,13 @@ public class Minecraft implements Runnable {
 
                 // Spawn zombie
                 if (Keyboard.getEventKey() == 34) { // G
-                    this.zombies.add(new Zombie(this.level, this.player.x, this.player.y, this.player.z));
+                    Zombie newZombie = new Zombie(this.level, this.player.x, this.player.y, this.player.z);
+                    this.zombies.add(newZombie);
+                    ModLoader.getInstance().dispatchEntitySpawn(newZombie, this.level);
                 }
+
+                // Dispatch key press to mods
+                ModLoader.getInstance().dispatchKeyPress(Keyboard.getEventKey());
             }
         }
 
@@ -311,15 +316,18 @@ public class Minecraft implements Runnable {
 
             // Tick zombie
             zombie.onTick();
+            ModLoader.getInstance().dispatchEntityTick(zombie, this.level);
 
             // Remove zombie
             if (zombie.removed) {
+                ModLoader.getInstance().dispatchEntityRemove(zombie, this.level);
                 iterator.remove();
             }
         }
 
         // Tick player
         this.player.onTick();
+        ModLoader.getInstance().dispatchPlayerTick(this.player, this.level);
 
         // Dispatch tick to mods
         ModLoader.getInstance().dispatchTick(this.level);
@@ -488,6 +496,7 @@ public class Minecraft implements Runnable {
                 // Create particles for this tile
                 if (previousTile != null && tileChanged) {
                     previousTile.onDestroy(this.level, this.hitResult.x, this.hitResult.y, this.hitResult.z, this.particleEngine);
+                    ModLoader.getInstance().dispatchPlayerDestroyTile(previousTile, this.level, this.hitResult.x, this.hitResult.y, this.hitResult.z);
                     ModLoader.getInstance().dispatchTileDestroy(previousTile, this.level, this.hitResult.x, this.hitResult.y, this.hitResult.z);
                 }
             }
@@ -513,6 +522,7 @@ public class Minecraft implements Runnable {
                 // Notify mods
                 Tile placedTile = Tile.tiles[this.selectedTileId];
                 if (placedTile != null) {
+                    ModLoader.getInstance().dispatchPlayerPlaceTile(placedTile, this.level, x, y, z);
                     ModLoader.getInstance().dispatchTilePlace(placedTile, this.level, x, y, z);
                 }
             }
