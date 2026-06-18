@@ -1,0 +1,40 @@
+name: Build
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 8
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build
+        run: ./gradlew jar fatJar
+
+      - name: Upload modloader jar (no deps)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mc-161807-modloader
+          path: build/libs/minecraft-rd-161807.jar
+
+      - name: Upload fat jar (runnable, all deps included)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mc-161807-modloader-all
+          path: build/libs/minecraft-rd-161807-all.jar
