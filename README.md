@@ -1,30 +1,53 @@
-# mc-161807 (Pre-Classic)
-Development phase: May 16, 2009 (until 18:07 UTC+2)
+# RubyDung / Minecraft Classic Modding Project
 
-## Unofficial name
-While this version is known to exist it is missing from the launcher and has not been archived elsewhere, meaning that it is currently lost.<br>
-<br>
-The version name is taken from [Notchs IRC message](https://archive.org/download/Minecraft_IRC_Logs_2009/history/files/May-15-to-June-03-2009/2009-05-16.075419-0400EDT.txt.~1~) <br>
-`` (12:07:06) notch: minecraft alpha is available. I need someone on windows, someone on mac and someone on linux!``
-<br>
-<br>
-Minecraft Wiki uses ``mc-161607`` for this version because it's in UTC format.
-``mc-161807`` would be in UTC+2 (Timezone in Sweden)
+Данный репозиторий представляет собой любительский исследовательский проект (фан-проект), посвященный изучению структуры и модификации ранних версий игры Minecraft (архитектура уровня Ruby Dung / Pre-Classic). 
 
-## Changes
-- Renamed com.mojang.rubydung to com.mojang.minecraft
-- Added Applet to run the game
+Проект разработан исключительно в ознакомительных и развлекательных целях, не является коммерческим продуктом и не преследует цель создания полноценного игрового клиента для широкой аудитории.
 
-## Accuracy
-This version has only been sent to [dock](https://minecraft.gamepedia.com/Hayden_Scott-Baron) and [fartron](https://forums.tigsource.com/index.php?action=profile;u=61) for testing.
-There is no existing backup.
-We can assume that all necessary changes have been made in this update for the first release.
+---
 
-## References
-- [Minecraft Wiki - Java_Edition_pre-Classic_mc-161607](https://minecraft.gamepedia.com/Java_Edition_pre-Classic_mc-161607)
-- [IRC logs](https://archive.org/download/Minecraft_IRC_Logs_2009/history/files/May-15-to-June-03-2009/2009-05-16.075419-0400EDT.txt.~1~)  to recreate the unreleased features:
-    - ``[12:07:06] notch: minecraft alpha is available. I need someone on windows, someone on mac and someone on linux!``
+## 🛑 Отказ от ответственности (Disclaimer)
 
-## Setup
-1. Clone the project
-2. Execute the gradle task ``run``
+* **Отсутствие гарантий:** Исходный код и скомпилированные модификации предоставляются по принципу «as is» (как есть). Автор не гарантирует стабильную работу проекта на любых конфигурациях операционных систем и аппаратного обеспечения.
+* **Использование стороннего кода:** Все изменения вносятся в ознакомительных целях для изучения низкоуровневой графики OpenGL и старой архитектуры игры. Автор не связан с Mojang Studios или Microsoft и не претендует на права интеллектуальной собственности.
+* **Техническая поддержка:** Проект является некоммерческим хобби. Автор не обязуется исправлять обнаруженные ошибки, выпускать регулярные обновления или адаптировать код под запросы сторонних пользователей. Все изменения вносятся исключительно по мере личного интереса и наличия свободного времени.
+
+---
+
+## 🛠️ Особенности и реализованные модули
+
+На данный момент в проекте реализована модульная система, позволяющая расширять функционал без прямого вмешательства в исходный код ядра (`Minecraft.java`):
+
+1. **Custom ModLoader** — базовый загрузчик, изолирующий логику модификаций от основного игрового цикла.
+2. **SprintMod** — модификация, добавляющая механику ускорения (бега) игрока при удержании клавиши `LCONTROL`.
+3. **PauseMenuMod** — модуль меню паузы, перехватывающий нажатие клавиши `KEY_ESCAPE`. Позволяет приостанавливать игровой процесс, освобождать курсор мыши для взаимодействия с графическим интерфейсом (GUI) и корректно завершать сессию.
+
+---
+
+## 🚀 Автоматизация сборки (CI/CD)
+
+Сборка проекта автоматизирована с помощью GitHub Actions. В целях экономии ресурсов и предотвращения избыточных запусков, автоматический триггер на события `push` и `pull_request` отключен. Сборка запускается строго вручную.
+
+### Инструкция по сборке:
+1. Перейдите во вкладку **Actions** в вашем репозитории на GitHub.
+2. В левой панели выберите рабочий процесс (workflow) **Build**.
+3. Нажмите кнопку **Run workflow**.
+4. В выпадающем меню выберите один из доступных параметров сборки (`build_target`):
+   * `All` — полная компиляция ядра игры, загрузчика и всех доступных модификаций.
+   * `Only Game + ModLoader` — сборка только основного клиента игры.
+   * `Only All Mods` — быстрая пересборка только файлов модификаций из директории `mods-src/`.
+
+После успешного завершения процесса готовые `.jar` файлы будут доступны для скачивания в блоке **Artifacts**.
+
+---
+
+## 📂 Структура каталогов
+
+Скрипт сборки спроектирован таким образом, чтобы изолировать исходный код каждой модификации. Для добавления нового мода достаточно создать для него отдельную подпапку:
+
+```text
+├── .github/workflows/build.yml   # Скрипт конфигурации CI/CD (GitHub Actions)
+├── src/main/java/com/...         # Исходный код ядра игры (Minecraft)
+└── mods-src/                     # Корневой каталог для исходного кода модификаций
+    ├── sprintmod/                # Исходный код SprintMod
+    └── pausemenu/                # Исходный код PauseMenuMod
