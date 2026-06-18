@@ -1,6 +1,7 @@
 package com.mojang.minecraft.level;
 
 import com.mojang.minecraft.level.tile.Tile;
+import com.mojang.minecraft.modloader.ModLoader;
 import com.mojang.minecraft.phys.AABB;
 
 import java.io.DataInputStream;
@@ -45,6 +46,7 @@ public class Level {
         // Generate a new level if file doesn't exists
         if (!mapLoaded) {
             generateMap();
+            ModLoader.getInstance().dispatchLevelGenerated(this);
         }
 
         // Calculate light depth of the entire level
@@ -384,6 +386,8 @@ public class Level {
             if (tile != null) {
                 // Tick tile
                 tile.onTick(this, x, y, z, this.random);
+                // Dispatch random tick to mods
+                ModLoader.getInstance().dispatchTileRandomTick(this, x, y, z, tile);
             }
         }
     }
