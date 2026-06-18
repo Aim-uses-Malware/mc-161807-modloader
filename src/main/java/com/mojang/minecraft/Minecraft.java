@@ -264,11 +264,6 @@ public class Minecraft implements Runnable {
         while (Keyboard.next()) {
             if (Keyboard.getEventKeyState()) {
 
-                // Exit the game
-                if (Keyboard.getEventKey() == 1) { // Escape
-                    stop();
-                }
-
                 // Save the level
                 if (Keyboard.getEventKey() == 28) { // Enter
                     this.level.save();
