@@ -21,6 +21,33 @@ dependencies {
 }
 
 
+// Add manifest to the default jar
+tasks.jar {
+    manifest {
+        attributes["Main-Class"] = "com.mojang.minecraft.Minecraft"
+        attributes["Implementation-Version"] = project.version
+    }
+}
+
+// Fat jar — bundles all dependencies (LWJGL etc.) into one runnable jar
+task("fatJar", Jar::class) {
+    group = "build"
+    description = "Assembles a runnable jar with all dependencies included"
+    archiveClassifier.set("all")
+    manifest {
+        attributes["Main-Class"] = "com.mojang.minecraft.Minecraft"
+        attributes["Implementation-Version"] = project.version
+    }
+    from(sourceSets["main"].output)
+    dependsOn(configurations.runtimeClasspath)
+    from({
+        configurations.runtimeClasspath.get()
+            .filter { it.name.endsWith("jar") && !it.name.contains("natives") }
+            .map { zipTree(it) }
+    })
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
 task("run", JavaExec::class) {
     jvmArgs = listOf("-Dorg.lwjgl.librarypath=${project.projectDir.toPath()}\\run\\natives")
     main = "com.mojang.minecraft.Minecraft"
