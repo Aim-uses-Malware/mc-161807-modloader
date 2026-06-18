@@ -1,5 +1,7 @@
 package com.mojang.minecraft.modloader;
 
+import com.mojang.minecraft.Player;
+import com.mojang.minecraft.character.Zombie;
 import com.mojang.minecraft.level.tile.Tile;
 
 import java.io.File;
@@ -14,12 +16,6 @@ import java.util.jar.JarFile;
 
 /**
  * ForgeModLoader — loads .jar mods from the "mods" folder next to the game working dir.
- *
- * Lifecycle:
- *   1. ModLoader.init() is called from Minecraft.init()
- *   2. Every .jar in ./mods/ is scanned for a class implementing IMod
- *   3. That class is instantiated and IMod.onLoad(this) is called
- *   4. Registered tiles / hooks become active for the rest of the session
  */
 public class ModLoader {
 
@@ -44,10 +40,6 @@ public class ModLoader {
 
     // ─── Bootstrap ────────────────────────────────────────────────────────────
 
-    /**
-     * Scan the "mods" directory, load every valid .jar, and call IMod.onLoad().
-     * Call this from Minecraft.init() before the game loop starts.
-     */
     public static void init() {
         ModLoader loader = getInstance();
         loader.loadMods();
@@ -78,10 +70,6 @@ public class ModLoader {
         log("Loaded " + mods.size() + " mod(s).");
     }
 
-    /**
-     * Open a .jar, find every class, look for ones that implement IMod,
-     * instantiate them, and call onLoad().
-     */
     private void loadJar(File jar) throws Exception {
         log("Loading: " + jar.getName());
 
@@ -97,10 +85,8 @@ public class ModLoader {
                 JarEntry entry = entries.nextElement();
                 String name = entry.getName();
 
-                // Only look at .class files, skip inner classes
                 if (!name.endsWith(".class") || name.contains("$")) continue;
 
-                // Convert path → class name
                 String className = name.replace('/', '.').replace(".class", "");
 
                 try {
@@ -114,7 +100,6 @@ public class ModLoader {
                         mod.onLoad(this);
                     }
                 } catch (ClassNotFoundException | NoClassDefFoundError ignored) {
-                    // Dependency classes in the jar — safe to skip
                 } catch (Exception e) {
                     log("  [WARN] Could not instantiate " + className + ": " + e.getMessage());
                 }
@@ -122,15 +107,8 @@ public class ModLoader {
         }
     }
 
-    // ─── Registration API (used by mods in onLoad) ────────────────────────────
+    // ─── Registration API ─────────────────────────────────────────────────────
 
-    /**
-     * Register a custom tile.
-     * The tile's id must be in range [10..255] to avoid conflicts with vanilla tiles (1–6).
-     *
-     * @param tile Tile instance to register (its id is set via the Tile(id, textureId) constructor)
-     * @throws IllegalArgumentException if the id is already taken or out of range
-     */
     public void registerTile(Tile tile) {
         if (tile.id < 10 || tile.id > 255) {
             throw new IllegalArgumentException("Mod tile id must be in range [10..255], got " + tile.id);
@@ -139,14 +117,12 @@ public class ModLoader {
             throw new IllegalArgumentException("Tile id " + tile.id + " is already registered by "
                     + Tile.tiles[tile.id].getClass().getName());
         }
-        // Tile constructor already stores itself in Tile.tiles[id]
         modTiles.add(tile);
         log("  Registered tile id=" + tile.id + " class=" + tile.getClass().getSimpleName());
     }
 
-    // ─── Event dispatch (called from patched Minecraft/Level) ────────────────
+    // ─── Event dispatch (Пофикшенные и рабочие хуки) ─────────────────────────
 
-    /** Dispatch tick event to all mods. */
     public void dispatchTick(com.mojang.minecraft.level.Level level) {
         for (IMod mod : mods) {
             try {
@@ -157,7 +133,6 @@ public class ModLoader {
         }
     }
 
-    /** Dispatch tile-destroy event to all mods. */
     public void dispatchTileDestroy(Tile tile, com.mojang.minecraft.level.Level level, int x, int y, int z) {
         for (IMod mod : mods) {
             try {
@@ -168,7 +143,6 @@ public class ModLoader {
         }
     }
 
-    /** Dispatch tile-place event to all mods. */
     public void dispatchTilePlace(Tile tile, com.mojang.minecraft.level.Level level, int x, int y, int z) {
         for (IMod mod : mods) {
             try {
@@ -179,19 +153,105 @@ public class ModLoader {
         }
     }
 
+    public void dispatchLevelGenerated(com.mojang.minecraft.level.Level level) {
+        for (IMod mod : mods) {
+            try {
+                mod.onLevelGenerated(level);
+            } catch (Exception e) {
+                log("[ERROR] " + mod.getModId() + " threw in onLevelGenerated: " + e.getMessage());
+            }
+        }
+    }
+
+    public void dispatchTileRandomTick(com.mojang.minecraft.level.Level level, int x, int y, int z, Tile tile) {
+        for (IMod mod : mods) {
+            try {
+                mod.onTileRandomTick(level, x, y, z, tile);
+            } catch (Exception e) {
+                log("[ERROR] " + mod.getModId() + " threw in onTileRandomTick: " + e.getMessage());
+            }
+        }
+    }
+
+    public void dispatchPlayerJump(Player player) {
+        for (IMod mod : mods) {
+            try {
+                mod.onPlayerJump(player);
+            } catch (Exception e) {
+                log("[ERROR] " + mod.getModId() + " threw in onPlayerJump: " + e.getMessage());
+            }
+        }
+    }
+
+    public void dispatchEntitySpawn(Zombie zombie, com.mojang.minecraft.level.Level level) {
+        for (IMod mod : mods) {
+            try {
+                mod.onEntitySpawn(zombie, level);
+            } catch (Exception e) {
+                log("[ERROR] " + mod.getModId() + " threw in onEntitySpawn: " + e.getMessage());
+            }
+        }
+    }
+
+    public void dispatchKeyPress(int key) {
+        for (IMod mod : mods) {
+            try {
+                mod.onKeyPress(key);
+            } catch (Exception e) {
+                log("[ERROR] " + mod.getModId() + " threw in onKeyPress: " + e.getMessage());
+            }
+        }
+    }
+
+    public void dispatchEntityTick(Zombie zombie, com.mojang.minecraft.level.Level level) {
+        for (IMod mod : mods) {
+            try {
+                mod.onEntityTick(zombie, level);
+            } catch (Exception e) {
+                log("[ERROR] " + mod.getModId() + " threw in onEntityTick: " + e.getMessage());
+            }
+        }
+    }
+
+    public void dispatchEntityRemove(Zombie zombie, com.mojang.minecraft.level.Level level) {
+        for (IMod mod : mods) {
+            try {
+                mod.onEntityRemove(zombie, level);
+            } catch (Exception e) {
+                log("[ERROR] " + mod.getModId() + " threw in onEntityRemove: " + e.getMessage());
+            }
+        }
+    }
+
+    public void dispatchPlayerTick(Player player, com.mojang.minecraft.level.Level level) {
+        for (IMod mod : mods) {
+            try {
+                mod.onPlayerTick(player, level);
+            } catch (Exception e) {
+                log("[ERROR] " + mod.getModId() + " threw in onPlayerTick: " + e.getMessage());
+            }
+        }
+    }
+
+    public void dispatchPlayerDestroyTile(Tile tile, com.mojang.minecraft.level.Level level, int x, int y, int z) {
+        // Прокидываем в стандартный метод уничтожения блоков
+        dispatchTileDestroy(tile, level, x, y, z);
+    }
+
+    public void dispatchPlayerPlaceTile(Tile tile, com.mojang.minecraft.level.Level level, int x, int y, int z) {
+        // Прокидываем в стандартный метод установки блоков
+        dispatchTilePlace(tile, level, x, y, z);
+    }
+
     // ─── Accessors ────────────────────────────────────────────────────────────
 
-    /** Unmodifiable view of all loaded mods. */
     public List<IMod> getMods() {
         return Collections.unmodifiableList(mods);
     }
 
-    /** Unmodifiable view of all mod-registered tiles. */
     public List<Tile> getModTiles() {
         return Collections.unmodifiableList(modTiles);
     }
-
-    // ─── Utilities ────────────────────────────────────────────────────────────
 
     private static void log(String msg) {
         System.out.println("[ModLoader] " + msg);
