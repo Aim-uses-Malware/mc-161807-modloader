@@ -6,29 +6,33 @@ import com.mojang.minecraft.modloader.IMod;
 import com.mojang.minecraft.modloader.ModLoader;
 import com.mojang.minecraft.modloader.logging.ModLogger;
 import com.mojang.minecraft.modloader.model.CustomEntityModel;
+import com.mojang.minecraft.modloader.model.Material;
 import com.mojang.minecraft.modloader.model.ModelPart;
+import com.mojang.minecraft.modloader.model.MtlLoader;
 import com.mojang.minecraft.modloader.model.OBJLoader;
-import org.lwjgl.BufferUtils;
+import com.mojang.minecraft.modloader.model.TextureLoader;
 import org.lwjgl.input.Keyboard;
 
-import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
+import java.io.FileInputStream;
 import java.io.IOException;
-import java.nio.ByteBuffer;
+import java.io.InputStream;
 import java.util.*;
 
 import static org.lwjgl.opengl.GL11.*;
-import static org.lwjgl.util.glu.GLU.gluBuild2DMipmaps;
 
 /**
  * FancyModels — спавнит случайную .obj модель из папки models/ рядом с игроком по нажатию P.
  *
- * Поддержка текстур, в порядке поиска:
- *  1) model.obj -> model.png / model.jpg / model.jpeg (прямое совпадение имени)
- *  2) model.obj -> model.mtl -> map_Kd <файл> (стандартная OBJ-материальная ссылка)
+ * Текстуры теперь грузятся через общие апишки лоадера моделей (MtlLoader/TextureLoader),
+ * те же самые, которыми OBJLoader сам читает mtllib/usemtl внутри .obj. Порядок поиска:
+ *
+ *  1) model.obj -> model.mtl уже подхвачен САМИМ OBJLoader'ом через строку "mtllib" в .obj —
+ *     в этом случае текстуры уже висят на конкретных частях модели (ModelPart), отдельно
+ *     грузить ничего не нужно. Проверяем это через ModelPart.hasOwnOrChildTexture().
+ *  2) Если в .obj не было mtllib (модель без материалов) — ищем по соглашению об именах:
+ *     a) model.obj -> model.png / model.jpg / model.jpeg (прямое совпадение имени)
+ *     b) model.obj -> model.mtl -> map_Kd <файл> (тот же .mtl, но без ссылки из .obj)
  *  Если ничего не найдено — модель рендерится плоским голубым цветом без текстуры.
  */
 public class FancyModels implements IMod {
@@ -47,6 +51,8 @@ public class FancyModels implements IMod {
     private final List<File> objFiles = new ArrayList<>();
     private final Map<File, CustomEntityModel> modelCache = new HashMap<>();
     private final Map<File, Integer> textureCache = new HashMap<>();
+    /** true, если модель сама несёт свои текстуры (из mtllib внутри .obj) — см. loadModel(). */
+    private final Map<File, Boolean> modelHasOwnMaterials = new HashMap<>();
     private final List<Spawned> spawned = new ArrayList<>();
 
     private Player playerRef;
@@ -89,14 +95,19 @@ public class FancyModels implements IMod {
         File chosen = objFiles.get(random.nextInt(objFiles.size()));
         try {
             CustomEntityModel model = modelCache.computeIfAbsent(chosen, this::loadModel);
-            int texId = textureCache.computeIfAbsent(chosen, this::loadMatchingTexture); // -1 если нет текстуры
+            boolean hasOwnMaterials = modelHasOwnMaterials.getOrDefault(chosen, false);
+
+            // Если модель уже сама несёт текстуры (из mtllib), глобальный textureId не нужен —
+            // только если её НЕТ, пробуем найти текстуру по соглашению об именах.
+            int texId = hasOwnMaterials ? -1 : textureCache.computeIfAbsent(chosen, this::loadMatchingTexture);
 
             float ox = (float) (playerRef.x + (random.nextFloat() - 0.5f) * 4f);
             float oz = (float) (playerRef.z + (random.nextFloat() - 0.5f) * 4f);
             float oy = (float) playerRef.y + SPAWN_HEIGHT_OFFSET;
 
-            spawned.add(new Spawned(model, ox, oy, oz, texId));
-            log.info("Заспавнена " + chosen.getName() + (texId >= 0 ? " (с текстурой)" : " (без текстуры)"));
+            spawned.add(new Spawned(model, ox, oy, oz, texId, hasOwnMaterials));
+            log.info("Заспавнена " + chosen.getName()
+                    + (hasOwnMaterials ? " (материалы из .obj)" : texId >= 0 ? " (с текстурой)" : " (без текстуры)"));
         } catch (Exception e) {
             log.error("Не удалось загрузить " + chosen.getName(), e);
         }
@@ -104,8 +115,13 @@ public class FancyModels implements IMod {
 
     private CustomEntityModel loadModel(File file) {
         try {
-            ModelPart root = OBJLoader.load(file.getPath()); // путь в FS — OBJLoader сам подхватит fallback
+            ModelPart root = OBJLoader.load(file.getPath()); // путь в FS — OBJLoader сам подхватит mtllib, если он есть
             root.scaleX = root.scaleY = root.scaleZ = MODEL_SCALE;
+
+            // OBJLoader уже разобрал mtllib/usemtl (если они были в файле) и развесил
+            // текстуры по конкретным ModelPart. Запоминаем это для onKeyPress/onRenderPost.
+            modelHasOwnMaterials.put(file, root.hasOwnOrChildTexture());
+
             return new CustomEntityModel() {
                 { parts.add(root); } // код внутри тела подкласса — protected parts доступен
             };
@@ -114,24 +130,32 @@ public class FancyModels implements IMod {
         }
     }
 
-    // ─── Текстуры ───────────────────────────────────────────────────────────
+    // ─── Текстуры (фоллбэк для моделей без mtllib внутри .obj) ──────────────
 
     private int loadMatchingTexture(File objFile) {
         File dir = objFile.getParentFile();
         String base = objFile.getName().replaceFirst("\\.obj$", "");
 
-        // 1) Прямое совпадение имени: model.obj -> model.png/.jpg/.jpeg
+        // a) Прямое совпадение имени: model.obj -> model.png/.jpg/.jpeg
         File direct = findImageByBaseName(dir, base);
-        if (direct != null) return uploadTexture(direct);
+        if (direct != null) {
+            return tryLoadTexture(direct.getPath());
+        }
 
-        // 2) Через .mtl: model.obj -> model.mtl -> map_Kd <файл текстуры>
+        // b) Через .mtl, который .obj сам не ссылается (нет mtllib) — берём первый
+        //    материал с map_Kd через тот же MtlLoader, которым пользуется OBJLoader.
         File mtl = new File(dir, base + ".mtl");
         if (mtl.exists()) {
-            String texName = parseMtlForDiffuseTexture(mtl);
-            if (texName != null) {
-                File texFile = new File(dir, texName);
-                if (texFile.exists()) return uploadTexture(texFile);
-                log.warn("В " + mtl.getName() + " указана текстура " + texName + ", но файла нет рядом с моделью");
+            Material material = firstMaterialWithTexture(mtl);
+            if (material != null && material.diffuseTexturePath != null) {
+                File texFile = new File(dir, material.diffuseTexturePath);
+                if (texFile.exists()) {
+                    return tryLoadTexture(texFile.getPath());
+                }
+                log.warn("В " + mtl.getName() + " указана текстура " + material.diffuseTexturePath
+                        + ", но файла нет рядом с моделью");
+            } else {
+                log.warn(mtl.getName() + " не содержит материала с map_Kd");
             }
         }
 
@@ -148,22 +172,12 @@ public class FancyModels implements IMod {
         return null;
     }
 
-    /** Парсит .mtl на предмет "map_Kd <имя_файла>" (диффузная текстура). */
-    private String parseMtlForDiffuseTexture(File mtlFile) {
-        try (BufferedReader reader = new BufferedReader(new FileReader(mtlFile))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                line = line.trim();
-                if (line.toLowerCase(Locale.ROOT).startsWith("map_kd")) {
-                    String[] tokens = line.split("\\s+");
-                    if (tokens.length < 2) continue;
-                    // Последний токен — имя файла (игнорируем опции вида -o/-s/-bm, если есть)
-                    String fileToken = tokens[tokens.length - 1];
-                    // На случай Windows-путей с обратным слешем внутри .mtl
-                    fileToken = fileToken.replace('\\', '/');
-                    int slash = fileToken.lastIndexOf('/');
-                    return slash >= 0 ? fileToken.substring(slash + 1) : fileToken;
-                }
+    /** Берёт первый материал из .mtl, у которого задана diffuse-текстура (map_Kd). */
+    private Material firstMaterialWithTexture(File mtlFile) {
+        try (InputStream in = new FileInputStream(mtlFile)) {
+            Map<String, Material> materials = MtlLoader.load(in);
+            for (Material m : materials.values()) {
+                if (m.diffuseTexturePath != null) return m;
             }
         } catch (IOException e) {
             log.warn("Не удалось прочитать " + mtlFile.getName() + ": " + e.getMessage());
@@ -171,35 +185,14 @@ public class FancyModels implements IMod {
         return null;
     }
 
-    /** Грузит произвольный файл изображения с диска в OpenGL-текстуру. */
-    private int uploadTexture(File imgFile) {
+    /** Грузит файл изображения с диска в OpenGL-текстуру через общий TextureLoader. */
+    private int tryLoadTexture(String path) {
         try {
-            BufferedImage img = ImageIO.read(imgFile);
-            if (img == null) {
-                log.warn("Не удалось распознать формат изображения: " + imgFile.getName());
-                return -1;
-            }
-            int w = img.getWidth(), h = img.getHeight();
-            int[] pixels = new int[w * h];
-            img.getRGB(0, 0, w, h, pixels, 0, w);
-            for (int i = 0; i < pixels.length; i++) {
-                int a = pixels[i] >> 24 & 0xFF, r = pixels[i] >> 16 & 0xFF,
-                    g = pixels[i] >> 8 & 0xFF, b = pixels[i] & 0xFF;
-                pixels[i] = a << 24 | b << 16 | g << 8 | r;
-            }
-            ByteBuffer buf = BufferUtils.createByteBuffer(w * h * 4);
-            buf.asIntBuffer().put(pixels);
-
-            int id = glGenTextures();
-            glBindTexture(GL_TEXTURE_2D, id);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-            gluBuild2DMipmaps(GL_TEXTURE_2D, GL_RGBA, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buf);
-
-            log.info("Текстура загружена: " + imgFile.getName());
+            int id = TextureLoader.load(path);
+            log.info("Текстура загружена: " + path);
             return id;
         } catch (IOException e) {
-            log.warn("Не удалось загрузить текстуру " + imgFile.getName() + ": " + e.getMessage());
+            log.warn("Не удалось загрузить текстуру " + path + ": " + e.getMessage());
             return -1;
         }
     }
@@ -213,12 +206,19 @@ public class FancyModels implements IMod {
             glTranslatef(s.x, s.y, s.z);
 
             if (s.textureId >= 0) {
+                // Глобальная текстура по соглашению об именах (модель без mtllib).
                 glEnable(GL_TEXTURE_2D);
                 glBindTexture(GL_TEXTURE_2D, s.textureId);
                 glColor3f(1f, 1f, 1f);
+            } else if (s.hasOwnMaterials) {
+                // У модели свои текстуры на конкретных ModelPart (из mtllib) —
+                // НЕ гасим GL_TEXTURE_2D и не перекрашиваем, иначе перекроем то,
+                // что каждая часть сама забиндит при рендере.
+                glEnable(GL_TEXTURE_2D);
+                glColor3f(1f, 1f, 1f);
             } else {
                 glDisable(GL_TEXTURE_2D);
-                glColor3f(0.6f, 0.8f, 1f); // голубым, если текстуры нет
+                glColor3f(0.6f, 0.8f, 1f); // голубым, если текстуры нет вообще никакой
             }
 
             s.model.render(System.currentTimeMillis() / 1000.0, partialTicks);
@@ -232,8 +232,10 @@ public class FancyModels implements IMod {
         final CustomEntityModel model;
         final float x, y, z;
         final int textureId;
-        Spawned(CustomEntityModel model, float x, float y, float z, int textureId) {
-            this.model = model; this.x = x; this.y = y; this.z = z; this.textureId = textureId;
+        final boolean hasOwnMaterials;
+        Spawned(CustomEntityModel model, float x, float y, float z, int textureId, boolean hasOwnMaterials) {
+            this.model = model; this.x = x; this.y = y; this.z = z;
+            this.textureId = textureId; this.hasOwnMaterials = hasOwnMaterials;
         }
     }
 }
