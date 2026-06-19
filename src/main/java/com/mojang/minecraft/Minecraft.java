@@ -596,7 +596,12 @@ public class Minecraft implements Runnable {
         // Draw player HUD
         drawGui(partialTicks);
 
+        // Draw player HUD
+      drawGui(partialTicks);
+
         // Dispatch HUD render to mods (in ortho mode)
+        int screenWidth = this.width * 240 / this.height;
+        int screenHeight = this.height * 240 / this.height;
         ModLoader.getInstance().dispatchRenderHud(screenWidth, screenHeight, partialTicks);
 
         // Update the display
