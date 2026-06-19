@@ -50,8 +50,7 @@ public class OBJLoader {
             stream = new FileInputStream(f);
         }
 
-        int slash = path.lastIndexOf('/');
-        String baseDir = slash >= 0 ? path.substring(0, slash + 1) : "";
+        String baseDir = baseDirOf(path);
 
         return parse(stream, path, baseDir, classpath);
     }
@@ -114,7 +113,7 @@ public class OBJLoader {
                         break;
                     }
                     if (tokens.length < 2) break;
-                    String mtlFile = tokens[1];
+                    String mtlFile = stripLeadingDotSlash(tokens[1]);
                     try {
                         materials = loadMtl(baseDir, mtlFile, classpath);
                     } catch (IOException e) {
@@ -194,6 +193,24 @@ public class OBJLoader {
         return root;
     }
 
+    /**
+     * Находит "директорию" пути с учётом ОБОИХ разделителей — '/' (как в classpath
+     * и в большинстве .obj/.mtl ссылок) и платформенного File.separatorChar (на Windows
+     * это '\', и File.getPath() отдаёт именно его). Без этого на Windows baseDir
+     * получался пустым, и mtllib/map_Kd резолвились от рабочей директории игры,
+     * а не от папки с .obj — ровно баг "MTL not found: ./xxx.mtl".
+     */
+    private static String baseDirOf(String path) {
+        int idx = Math.max(path.lastIndexOf('/'), path.lastIndexOf(File.separatorChar));
+        return idx >= 0 ? path.substring(0, idx + 1) : "";
+    }
+
+    /** Срезает мусорный "./" или ".\" в начале относительного пути из .obj/.mtl. */
+    private static String stripLeadingDotSlash(String p) {
+        if (p.startsWith("./") || p.startsWith(".\\")) return p.substring(2);
+        return p;
+    }
+
     private static void flush(ModelPart part, List<float[]> verts, List<int[]> tris) {
         for (float[] v : verts) {
             part.addVertex(v[0], v[1], v[2], v[3], v[4]);
@@ -236,7 +253,7 @@ public class OBJLoader {
 
         for (Material mat : materials.values()) {
             if (mat.diffuseTexturePath == null) continue;
-            String texPath = baseDir + mat.diffuseTexturePath;
+            String texPath = baseDir + stripLeadingDotSlash(mat.diffuseTexturePath);
             try {
                 mat.textureId = TextureLoader.load(texPath);
             } catch (IOException e) {
