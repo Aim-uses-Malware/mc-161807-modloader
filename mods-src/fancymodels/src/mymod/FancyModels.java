@@ -74,10 +74,10 @@ public class FancyModels implements IMod {
             CustomEntityModel model = modelCache.computeIfAbsent(chosen, this::loadModel);
             int texId = textureCache.computeIfAbsent(chosen, this::loadMatchingTexture); // -1 если нет png
 
-            float ox = playerRef.x + (random.nextFloat() - 0.5f) * 4f;
-            float oz = playerRef.z + (random.nextFloat() - 0.5f) * 4f;
+            float ox = (float) (playerRef.x + (random.nextFloat() - 0.5f) * 4f);
+            float oz = (float) (playerRef.z + (random.nextFloat() - 0.5f) * 4f);
 
-            spawned.add(new Spawned(model, ox, playerRef.y, oz, texId));
+            spawned.add(new Spawned(model, ox, (float) playerRef.y, oz, texId));
             log.info("Заспавнена " + chosen.getName());
         } catch (Exception e) {
             log.error("Не удалось загрузить " + chosen.getName(), e);
@@ -87,9 +87,9 @@ public class FancyModels implements IMod {
     private CustomEntityModel loadModel(File file) {
         try {
             ModelPart root = OBJLoader.load(file.getPath()); // путь в FS — OBJLoader сам подхватит fallback
-            CustomEntityModel m = new CustomEntityModel() {};
-            m.parts.add(root); // parts protected — доступно из анонимного наследника
-            return m;
+            return new CustomEntityModel() {
+                { parts.add(root); } // код внутри тела подкласса — protected parts доступен
+            };
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
