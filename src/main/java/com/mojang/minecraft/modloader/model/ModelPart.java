@@ -26,6 +26,14 @@ public class ModelPart {
     private int displayList = -1;
     private boolean dirty   = true;
 
+    /**
+     * GL texture id для ЭТОЙ части модели. -1 (по умолчанию) = не задана —
+     * в этом случае часть рисуется текстурой, которую вызывающий код
+     * забиндил снаружи перед render() (старое поведение, ничего не ломаем).
+     * Заполняется OBJLoader'ом из материала (.mtl), если он есть у группы.
+     */
+    private int textureId = -1;
+
     public ModelPart(String name) {
         this.name = name;
     }
@@ -98,11 +106,27 @@ public class ModelPart {
         return this;
     }
 
+    // ─── Material / texture ───────────────────────────────────────────────────
+
+    /**
+     * Привязывает GL-текстуру к этой части (вызывается OBJLoader'ом из .mtl).
+     * id == -1 сбрасывает привязку — часть снова рисуется текстурой, забинженной снаружи.
+     */
+    public ModelPart setTexture(int glTextureId) {
+        this.textureId = glTextureId;
+        return this;
+    }
+
+    public int getTexture() {
+        return textureId;
+    }
+
     // ─── Rendering ────────────────────────────────────────────────────────────
 
     /**
      * Рендерит эту часть и всех детей.
-     * Перед вызовом должна быть привязана текстура.
+     * Перед вызовом должна быть привязана текстура (если у части самой
+     * нет своей текстуры из .mtl — см. setTexture).
      */
     public void render() {
         glPushMatrix();
@@ -126,6 +150,13 @@ public class ModelPart {
     private void drawGeometry() {
         if (vertices.isEmpty() || faces.isEmpty()) return;
 
+        // Если для этой части задана своя текстура (пришла из .mtl) — биндим её.
+        // Если не задана (-1), оставляем то, что уже забиндено снаружи —
+        // это сохраняет старое поведение для моделей без материалов.
+        if (textureId != -1) {
+            glBindTexture(GL_TEXTURE_2D, textureId);
+        }
+
         if (dirty || displayList == -1) {
             if (displayList != -1) glDeleteLists(displayList, 1);
             displayList = glGenLists(1);
@@ -146,7 +177,7 @@ public class ModelPart {
         glCallList(displayList);
     }
 
-    /** Освобождает GPU-ресурсы. */
+    /** Освобождает GPU-ресурсы (display list). Текстуры не трогает — они кэшируются в TextureLoader. */
     public void free() {
         if (displayList != -1) {
             glDeleteLists(displayList, 1);
