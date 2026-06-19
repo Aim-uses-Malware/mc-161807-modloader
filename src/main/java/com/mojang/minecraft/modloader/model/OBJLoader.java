@@ -1,9 +1,9 @@
 package com.mojang.minecraft.modloader.model;
 
 import java.io.*;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Загружает .obj файлы (Wavefront) из classpath или файловой системы в ModelPart.
@@ -14,6 +14,17 @@ import java.util.List;
  *  - нормали (vn) — игнорируются, так как движок использует flat shading
  *  - грани (f v/vt v/vt v/vt) — триангуляция квадов автоматически
  *  - группы объектов (o, g) → каждая группа = отдельный ModelPart-ребёнок
+ *  - материалы (mtllib имя.mtl, usemtl ИмяМатериала) → текстура из .mtl
+ *    применяется к ModelPart-ребёнку, созданному на момент смены материала
+ *
+ * Материалы и их diffuse-текстуры (map_Kd) резолвятся относительно той же
+ * директории, где лежит .obj файл (и тем же способом — classpath или файловая
+ * система, в зависимости от того, как был загружен сам .obj).
+ *
+ * Если .obj грузится через load(InputStream, debugName) без явного пути,
+ * mtllib не может быть резолвлен (неизвестна базовая директория) — в этом
+ * случае текстуры материалов не загружаются, об этом пишется в лог,
+ * остальная геометрия парсится как обычно.
  *
  * Использование из мода:
  * <pre>
@@ -32,30 +43,40 @@ public class OBJLoader {
      */
     public static ModelPart load(String path) throws IOException {
         InputStream stream = OBJLoader.class.getResourceAsStream(path);
+        boolean classpath = stream != null;
         if (stream == null) {
             File f = new File(path.startsWith("/") ? path.substring(1) : path);
             if (!f.exists()) throw new IOException("OBJ not found: " + path);
             stream = new FileInputStream(f);
         }
-        return parse(stream, path);
+
+        int slash = path.lastIndexOf('/');
+        String baseDir = slash >= 0 ? path.substring(0, slash + 1) : "";
+
+        return parse(stream, path, baseDir, classpath);
     }
 
     /**
      * Загружает .obj из произвольного InputStream.
+     * mtllib внутри файла НЕ будет резолвлен — нет базовой директории, чтобы найти .mtl рядом.
      */
     public static ModelPart load(InputStream stream, String debugName) throws IOException {
-        return parse(stream, debugName);
+        return parse(stream, debugName, null, false);
     }
 
     // ─── Parser ───────────────────────────────────────────────────────────────
 
-    private static ModelPart parse(InputStream in, String name) throws IOException {
+    private static ModelPart parse(InputStream in, String name, String baseDir, boolean classpath) throws IOException {
         ModelPart root = new ModelPart("root@" + name);
 
         List<float[]> verts = new ArrayList<>();  // x,y,z
         List<float[]> uvs   = new ArrayList<>();  // u,v
 
-        ModelPart current = new ModelPart("default");
+        Map<String, Material> materials = null;   // заполняется по mtllib
+        Material currentMaterial = null;           // заполняется по usemtl
+        String currentGroupName = "default";
+
+        ModelPart current = new ModelPart(currentGroupName);
         root.addChild(current);
 
         // Temp lists for current group
@@ -86,14 +107,53 @@ public class OBJLoader {
                     });
                     break;
                 }
+                case "mtllib": {
+                    if (baseDir == null) {
+                        System.err.println("[OBJLoader] mtllib встречен при загрузке из InputStream без пути — "
+                                + "текстуры материалов не будут загружены: " + line);
+                        break;
+                    }
+                    if (tokens.length < 2) break;
+                    String mtlFile = tokens[1];
+                    try {
+                        materials = loadMtl(baseDir, mtlFile, classpath);
+                    } catch (IOException e) {
+                        System.err.println("[OBJLoader] Не удалось загрузить mtllib '" + mtlFile + "': " + e.getMessage());
+                    }
+                    break;
+                }
+                case "usemtl": {
+                    String matName = tokens.length > 1 ? tokens[1] : null;
+                    currentMaterial = (materials != null && matName != null) ? materials.get(matName) : null;
+                    if (matName != null && currentMaterial == null && materials != null) {
+                        System.err.println("[OBJLoader] usemtl '" + matName + "' не найден в загруженном mtllib");
+                    }
+
+                    // Завершаем текущую часть, начинаем новую — со своей текстурой
+                    flush(current, partVerts, partTris);
+                    partVerts.clear(); partTris.clear();
+
+                    String partName = currentGroupName + (matName != null ? ("@" + matName) : "");
+                    current = new ModelPart(partName);
+                    if (currentMaterial != null) {
+                        current.setTexture(currentMaterial.textureId);
+                    }
+                    root.addChild(current);
+                    break;
+                }
                 case "o":
                 case "g": {
                     // Flush current group
                     flush(current, partVerts, partTris);
                     partVerts.clear(); partTris.clear();
 
-                    String groupName = tokens.length > 1 ? tokens[1] : "group";
-                    current = new ModelPart(groupName);
+                    currentGroupName = tokens.length > 1 ? tokens[1] : "group";
+                    current = new ModelPart(currentGroupName);
+                    // Если usemtl уже был объявлен раньше (нестандартный, но валидный порядок) —
+                    // унаследуем текущий материал на новую группу.
+                    if (currentMaterial != null) {
+                        current.setTexture(currentMaterial.textureId);
+                    }
                     root.addChild(current);
                     break;
                 }
@@ -141,5 +201,50 @@ public class OBJLoader {
         for (int[] t : tris) {
             part.addTriangle(t[0], t[1], t[2]);
         }
+    }
+
+    // ─── Material loading ───────────────────────────────────────────────────────
+
+    /**
+     * Загружает .mtl относительно той же директории, что и .obj, и сразу
+     * подгружает в видеопамять все текстуры (map_Kd), на которые материалы ссылаются.
+     */
+    private static Map<String, Material> loadMtl(String baseDir, String mtlFileName, boolean preferClasspath) throws IOException {
+        String fullPath = baseDir + mtlFileName;
+
+        InputStream stream = preferClasspath ? OBJLoader.class.getResourceAsStream(fullPath) : null;
+        if (stream == null) {
+            File f = new File(fullPath.startsWith("/") ? fullPath.substring(1) : fullPath);
+            if (f.exists()) {
+                stream = new FileInputStream(f);
+            }
+        }
+        if (stream == null) {
+            // на случай, если .obj грузился из файловой системы, а .mtl лежит в classpath (или наоборот)
+            stream = OBJLoader.class.getResourceAsStream(fullPath);
+        }
+        if (stream == null) {
+            throw new IOException("MTL not found: " + fullPath);
+        }
+
+        Map<String, Material> materials;
+        try {
+            materials = MtlLoader.load(stream);
+        } finally {
+            stream.close();
+        }
+
+        for (Material mat : materials.values()) {
+            if (mat.diffuseTexturePath == null) continue;
+            String texPath = baseDir + mat.diffuseTexturePath;
+            try {
+                mat.textureId = TextureLoader.load(texPath);
+            } catch (IOException e) {
+                System.err.println("[OBJLoader] Не удалось загрузить текстуру '" + texPath
+                        + "' для материала '" + mat.name + "': " + e.getMessage());
+            }
+        }
+
+        return materials;
     }
 }
