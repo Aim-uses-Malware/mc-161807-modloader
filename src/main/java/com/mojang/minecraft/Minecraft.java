@@ -3,6 +3,8 @@ package com.mojang.minecraft;
 import com.mojang.minecraft.character.Zombie;
 import com.mojang.minecraft.level.*;
 import com.mojang.minecraft.modloader.ModLoader;
+import com.mojang.minecraft.modloader.event.EventBus;
+import com.mojang.minecraft.modloader.event.Events;
 import com.mojang.minecraft.level.tile.Tile;
 import com.mojang.minecraft.particle.ParticleEngine;
 import org.lwjgl.BufferUtils;
@@ -282,6 +284,10 @@ public class Minecraft implements Runnable {
                 if (Keyboard.getEventKey() == 5) { // 4
                     this.selectedTileId = Tile.wood.id;
                 }
+                // Hotbar slot keys 1-9 sync with inventory
+                if (Keyboard.getEventKey() >= 2 && Keyboard.getEventKey() <= 10) {
+                    this.player.inventory.selectSlot(Keyboard.getEventKey() - 2);
+                }
                 if (Keyboard.getEventKey() == 7) { // 6
                     this.selectedTileId = Tile.bush.id;
                 }
@@ -523,6 +529,9 @@ public class Minecraft implements Runnable {
             }
         }
 
+        // Dispatch pre-render hook to mods
+        ModLoader.getInstance().dispatchRenderPre(partialTicks);
+
         // Clear color and depth buffer and reset the camera
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -581,8 +590,14 @@ public class Minecraft implements Runnable {
             glEnable(GL_ALPHA_TEST);
         }
 
+        // Dispatch post-render hook to mods
+        ModLoader.getInstance().dispatchRenderPost(partialTicks);
+
         // Draw player HUD
         drawGui(partialTicks);
+
+        // Dispatch HUD render to mods (in ortho mode)
+        ModLoader.getInstance().dispatchRenderHud(screenWidth, screenHeight, partialTicks);
 
         // Update the display
         Display.update();
