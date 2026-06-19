@@ -1,8 +1,8 @@
-package com.mojang.minecraft.modloader.api;
+package com.mojang.minecraft.modloader;
 
 /**
- * Rich metadata for a loaded mod.
- * Populated either from the IMod interface getters or from modinfo.json inside the jar.
+ * Метаданные мода — имя, версия, описание, автор.
+ * Возвращается через IMod.getMetadata().
  */
 public class ModMetadata {
 
@@ -13,10 +13,10 @@ public class ModMetadata {
     public final String author;
     public final String website;
 
-    /** Whether the mod is enabled (can be toggled in the Mods GUI). */
+    /** Включён ли мод (можно переключать через GUI). */
     public boolean enabled = true;
 
-    /** Source jar filename, set by ModLoader after loading. */
+    /** Имя jar-файла, устанавливается ModLoader'ом. */
     public String sourceFile = "";
 
     public ModMetadata(String modId, String name, String version,
@@ -29,13 +29,13 @@ public class ModMetadata {
         this.website     = website;
     }
 
-    /** Short constructor for mods that don't fill optional fields. */
     public ModMetadata(String modId, String name, String version) {
         this(modId, name, version, "", "Unknown", "");
     }
 
     @Override
     public String toString() {
-        return name + " v" + version + " (" + modId + ")";
+        return name + " v" + version + " (" + modId + ")"
+               + (author.isEmpty() ? "" : " by " + author);
     }
 }
