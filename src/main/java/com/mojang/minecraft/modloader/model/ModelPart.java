@@ -121,6 +121,21 @@ public class ModelPart {
         return textureId;
     }
 
+    /**
+     * true, если у этой части ИЛИ у любого её потомка задана своя текстура
+     * (пришедшая из .mtl через mtllib/usemtl). Полезно для модов вроде
+     * FancyModels: если модель сама содержит материалы, не нужно вешать
+     * на неё снаружи единый "глобальный" textureId/glDisable(GL_TEXTURE_2D) —
+     * каждая часть и так забиндит свою текстуру при рендере.
+     */
+    public boolean hasOwnOrChildTexture() {
+        if (textureId != -1) return true;
+        for (ModelPart child : children) {
+            if (child.hasOwnOrChildTexture()) return true;
+        }
+        return false;
+    }
+
     // ─── Rendering ────────────────────────────────────────────────────────────
 
     /**
